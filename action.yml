@@ -1,14 +1,19 @@
 name: "Feature map gate"
 description: >-
-  Validate a repository's feature-map.json against the shared schema, and (as
-  later increments land) refuse a pull request that touches a governed file no
-  feature claims.
+  Validate a repository's feature-map.json against the shared schema and refuse
+  a pull request that touches a governed file no feature claims.
 author: "StoneDogCode L.L.C."
 
 branding:
   icon: map
   color: blue
 
+# NOTE ON PROSE IN THIS FILE: never write a GitHub expression in a description.
+# Actions evaluates every "dollar-brace-brace" in action.yml, and an action has
+# no `secrets` context — so mentioning the token variable literally made the
+# whole manifest fail to load with "Unrecognized named-value: 'secrets'", in the
+# CONSUMING repository rather than here. See `npm run check:action` for the
+# guard, and README for how to pass the token.
 inputs:
   map:
     description: >-
@@ -19,19 +24,19 @@ inputs:
     required: false
   token:
     description: >-
-      A token with pull-request read access, normally
-      ${{ secrets.GITHUB_TOKEN }}. Required on a pull_request run: the coverage
-      half reads the changed-file list. Absent, the action FAILS rather than
-      skipping — a gate that quietly checks nothing is worse than one that is
-      switched off.
+      A token with pull-request read and comment access — normally the
+      workflow's own GITHUB_TOKEN. Required on a pull_request run, because the
+      coverage half reads the changed-file list. Absent, the action FAILS rather
+      than skipping: a gate that quietly checks nothing is worse than one that
+      is switched off.
     required: false
   comment:
     description: >-
-      Post the coverage report as a pull-request comment, updated in place.
-      Set to "false" to disable. A comment that cannot be posted is a WARNING
-      and never fails the gate — a fork's token is read-only whatever the
-      workflow grants, and failing there would redden every fork pull request
-      for a reason unrelated to coverage.
+      Post the coverage report as a pull-request comment, updated in place. Set
+      to "false" to disable. A comment that cannot be posted is a WARNING and
+      never fails the gate — a fork's token is read-only whatever the workflow
+      grants, and failing there would redden every fork pull request for a
+      reason unrelated to coverage.
     required: false
     default: "true"
   governed-roots:
@@ -42,6 +47,9 @@ inputs:
       Setting this logs a warning naming both values.
     required: false
 
+# Outputs take a description and nothing else. `required:` here is not ignored —
+# it fails the manifest with "Unexpected value 'required'", again in the
+# consuming repository.
 outputs:
   map:
     description: "The map path that was read, relative to the repository root."
@@ -51,14 +59,6 @@ outputs:
     description: "Number of features, with a leaf group counted as a feature."
   claimed-paths:
     description: "Number of distinct code paths claimed across the map."
-  token:
-    description: >-
-      A token with pull-request read access, normally
-      ${{ secrets.GITHUB_TOKEN }}. Required on a pull_request run: the coverage
-      half reads the changed-file list. Absent, the action FAILS rather than
-      skipping — a gate that quietly checks nothing is worse than one that is
-      switched off.
-    required: false
   governed-roots:
     description: "The governed roots in effect, comma separated."
   examined:
