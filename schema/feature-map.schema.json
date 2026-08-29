@@ -1,0 +1,142 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://stonedogcode.com/schema/feature-map-1.json",
+  "title": "feature-map",
+  "description": "What a repository declares about its own features and the code paths that implement them. Read by the coverage gate, which refuses a pull request touching a governed file that no feature claims.",
+  "type": "object",
+  "required": [
+    "product",
+    "governedRoots",
+    "featureGroups"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "product": {
+      "description": "The product this map describes. Free text, and the only field here purely for a human reading the file.",
+      "type": "string",
+      "minLength": 1
+    },
+    "governedRoots": {
+      "description": "The roots the gate governs. A changed file outside every one of these is ignored; a changed file inside one MUST be claimed by some feature's codePaths or the gate fails.\n\nRequired, and required for a reason. hopperguard kept these in its workflow as a JavaScript constant, which meant the one setting that decides what the gate even looks at was invisible to the map, unreadable by a shared action, and different per repository with nothing comparing them. A gate whose scope lives in its own implementation cannot be extracted.\n\nAn EMPTY array is legal and means the gate governs nothing. That is a real state a repository may want while adopting the map, and it is deliberately distinguishable from the field being absent -- which is now impossible, because it is required. An absent key that reads as an empty list is exactly the failure this schema exists to make unrepresentable.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/pathGlob"
+      }
+    },
+    "featureGroups": {
+      "description": "The groups. Order is presentation only and carries no meaning.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/featureGroup"
+      }
+    }
+  },
+  "$defs": {
+    "groupKey": {
+      "description": "A group's stable identifier. SCREAMING_SNAKE, which is not a preference -- it is what all three live maps already use, measured: every group key in hopperguard, rozcards and card-sorter matches this today. A schema that invented a different convention would invalidate the entire corpus on its first run and call that a finding.\n\nIt appears in gate output, in URLs and in generated diagram filenames, so it must survive all three without escaping.",
+      "type": "string",
+      "pattern": "^[A-Z0-9]+(_[A-Z0-9]+)*$"
+    },
+    "featureKey": {
+      "description": "A feature's stable identifier: its group's key, a dot, then one segment -- `HOPS.CREATE`.\n\nAlso measured rather than imposed. All 133 feature keys in hopperguard are exactly `<groupKey>.<segment>` with a single dot, and none has two. The dotted form is what makes a feature key globally unique by construction rather than by luck.\n\nThe schema can only enforce the SHAPE here, because JSON Schema cannot compare a value against its parent's. That the prefix matches the group it is nested in is checked in code, where it catches a feature pasted into the wrong group -- an error that is otherwise completely silent.",
+      "type": "string",
+      "pattern": "^[A-Z0-9]+(_[A-Z0-9]+)*\\.[A-Z0-9]+(_[A-Z0-9]+)*$"
+    },
+    "pathGlob": {
+      "description": "A repository-relative path or glob, using FORWARD SLASHES only.\n\nThe `not` below refuses three things: an absolute path, a Windows drive letter, and any `..` segment.\n\nBackslashes are refused outright rather than normalised, and that is the load-bearing decision. An earlier version of this pattern enumerated the forward-slash forms of traversal and was bypassed three ways in one review: `..\\\\..\\\\etc`, `\\\\absolute\\\\path` and `src\\\\..\\\\..\\\\x` were all accepted, because every clause it had checked for `/`. Banning the character removes the whole class instead of the instances -- and costs nothing, since git reports paths with forward slashes on every platform, so a backslash here is already wrong before it is dangerous.\n\nThe bare string `..` is refused too. It was accepted by the earlier pattern, which required a leading or trailing slash and so matched `../x` and `x/../y` while missing the shortest escape of all.",
+      "type": "string",
+      "minLength": 1,
+      "not": {
+        "pattern": "(^/)|(^[A-Za-z]:)|(\\\\)|((^|/)\\.\\.(/|$))"
+      }
+    },
+    "featureGroup": {
+      "description": "A group of features, or -- where a repository does not need the inner level -- a feature in its own right.\n\n## Why this is a union rather than one fixed depth\n\nMeasured across the three live maps in this fleet: hopperguard nests 133 features under 28 groups, while rozcards' 11 groups and card-sorter's 4 carry their code paths directly. Neither is wrong. hopperguard's feature granularity is real and is what its gate reports against, so flattening would DESTROY information; and requiring two levels everywhere would make the other two wrap every group in a synthetic single feature nobody asked for, to satisfy a reader rather than to describe anything.\n\nSo a group carries `codePaths` OR `features`, never both and never neither. That is asserted here rather than left to the gate, because a group with both has no defined meaning and a group with neither silently governs nothing -- and a feature that claims no paths is indistinguishable, to the gate, from a feature that does not exist. Across all three live maps today, zero groups violate this.",
+      "type": "object",
+      "required": [
+        "key",
+        "name"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "$ref": "#/$defs/groupKey"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "codePaths": {
+          "$ref": "#/$defs/codePaths"
+        },
+        "features": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/feature"
+          }
+        }
+      },
+      "oneOf": [
+        {
+          "required": [
+            "codePaths"
+          ],
+          "not": {
+            "required": [
+              "features"
+            ]
+          }
+        },
+        {
+          "required": [
+            "features"
+          ],
+          "not": {
+            "required": [
+              "codePaths"
+            ]
+          }
+        }
+      ]
+    },
+    "feature": {
+      "description": "One feature, and the code that implements it.",
+      "type": "object",
+      "required": [
+        "key",
+        "name",
+        "codePaths"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "$ref": "#/$defs/featureKey"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "codePaths": {
+          "$ref": "#/$defs/codePaths"
+        },
+        "relatedComponents": {
+          "description": "Components this feature reads or renders but does not own. Documentation for a human; the gate does not use it, and a path here does NOT claim a file.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "codePaths": {
+      "description": "The files this feature owns. `minItems: 1` is the point of the field: an empty list claims nothing, so a feature carrying one is invisible to the gate while looking, in the file, exactly like a feature that is covered.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/pathGlob"
+      }
+    }
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "product": "fixture",
+  "featureGroups": [
+    {
+      "key": "BILLING",
+      "name": "Billing",
+      "codePaths": ["src/billing/**"],
+      "features": [
+        { "key": "SHIPPING.INVOICES", "name": "Invoices", "codePaths": [] }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "product": "fixture",
+  "governedRoots": ["src/"],
+  "featureGroups": [
+    {
+      "key": "BILLING",
+      "name": "Billing",
+      "features": [
+        { "key": "BILLING.INVOICES", "name": "Invoices", "codePaths": ["src/billing/invoice.ts"] }
+      ]
+    },
+    { "key": "SCANNER", "name": "Scanner", "codePaths": ["src/scanner/**"] }
+  ]
+}
