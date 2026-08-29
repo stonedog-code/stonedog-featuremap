@@ -63,7 +63,9 @@ import path from "node:path";
 import * as core from "./runner.js";
 
 import { claimedPaths, featureKeys, validateText } from "../index.js";
+import { upsertComment } from "./comment.js";
 import { classify, parseSubmodulePaths } from "./coverage.js";
+import { buildReport } from "./report.js";
 import { fetchChangedFiles, pullNumberFrom } from "./changed-files.js";
 import { parseList, resolveMapPath } from "./inputs.js";
 
@@ -229,6 +231,40 @@ export async function run(): Promise<void> {
 
   core.setOutput("examined", String(changed.files.length));
   core.setOutput("blocking", String(verdict.blocking.length));
+
+  // The comment is the EXPLANATION; the exit code below is the enforcement.
+  // It is posted before the verdict is acted on, so a failing run still leaves
+  // the reader the list of files -- a red check saying only "failed" is what
+  // gets merged past.
+  if (core.getInput("comment") !== "false") {
+    const report = buildReport({
+      verdict,
+      mapPath: relative,
+      groups: map.featureGroups.length,
+      features,
+      claimedPaths: paths,
+      governedRoots,
+      atApiCeiling: changed.atApiCeiling,
+    });
+    const posted = await upsertComment({
+      token,
+      owner,
+      repo,
+      issue: pull,
+      body: report,
+      apiUrl: process.env.GITHUB_API_URL ?? undefined,
+    });
+    if (posted.status === "skipped") {
+      // A warning, never a failure. Commenting needs `pull-requests: write`,
+      // and a fork's token is read-only whatever the workflow grants -- so
+      // failing here would turn every fork pull request red for a reason
+      // unrelated to coverage, and the fix people reach for is disabling the
+      // gate.
+      core.warning(`Could not post the coverage comment (${posted.reason}). The verdict below still stands.`);
+    } else {
+      core.info(`Coverage comment ${posted.status}.`);
+    }
+  }
 
   if (verdict.blocking.length > 0) {
     for (const file of verdict.blocking) {

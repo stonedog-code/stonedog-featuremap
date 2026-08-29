@@ -25,6 +25,15 @@ inputs:
       skipping — a gate that quietly checks nothing is worse than one that is
       switched off.
     required: false
+  comment:
+    description: >-
+      Post the coverage report as a pull-request comment, updated in place.
+      Set to "false" to disable. A comment that cannot be posted is a WARNING
+      and never fails the gate — a fork's token is read-only whatever the
+      workflow grants, and failing there would redden every fork pull request
+      for a reason unrelated to coverage.
+    required: false
+    default: "true"
   governed-roots:
     description: >-
       Override the roots the gate governs, comma or newline separated. Rarely
