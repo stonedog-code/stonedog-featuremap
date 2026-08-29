@@ -63,25 +63,47 @@ jobs:
       # bundle built cleanly here and died at load with "module is not defined",
       # and an earlier ESM one died on a dependency's dynamic require. Neither
       # was visible until something ran the file.
+      #
+      # `env -u GITHUB_EVENT_PATH` is load-bearing. This step exercises the MAP
+      # half only, and without clearing that variable the action correctly reads
+      # the runner's real pull_request payload, moves on to the coverage half,
+      # and fails for want of a token — which is right behaviour meeting a step
+      # that predates it.
+      #
+      # It is also a local-versus-CI trap worth naming: this passed locally
+      # because `env -i` had cleared GITHUB_EVENT_PATH, and CI sets it. A local
+      # harness that scrubs the environment is not a faithful stand-in for a
+      # runner that populates it.
       - name: The action runs, and refuses an invalid map
         run: |
           set -euo pipefail
           work="$(mktemp -d)"
           cp test/fixtures/valid.json "$work/feature-map.json"
-          GITHUB_WORKSPACE="$work" GITHUB_OUTPUT="$work/out" node dist/index.js
+          env -u GITHUB_EVENT_PATH GITHUB_WORKSPACE="$work" GITHUB_OUTPUT="$work/out" node dist/index.js
           grep -q '^features<<' "$work/out" || { echo "::error::the action wrote no outputs"; exit 1; }
 
           cp test/fixtures/invalid.json "$work/feature-map.json"
-          if GITHUB_WORKSPACE="$work" GITHUB_OUTPUT="$work/out2" node dist/index.js; then
+          if env -u GITHUB_EVENT_PATH GITHUB_WORKSPACE="$work" GITHUB_OUTPUT="$work/out2" node dist/index.js; then
             echo "::error::the action accepted a map it must refuse"
             exit 1
           fi
 
           empty="$(mktemp -d)"
-          if GITHUB_WORKSPACE="$empty" GITHUB_OUTPUT="$empty/out" node dist/index.js; then
+          if env -u GITHUB_EVENT_PATH GITHUB_WORKSPACE="$empty" GITHUB_OUTPUT="$empty/out" node dist/index.js; then
             echo "::error::the action passed with no map at all"
             exit 1
           fi
+
+      # Enforcement, end to end, against a stub API — the unit tests prove the
+      # decision and this proves the WIRING: inputs read, event parsed, files
+      # paged, verdict acted on, exit code set. Every one of those is a place
+      # the gate could quietly do nothing.
+      #
+      # The gitlink case is the one that matters most: it failed on every
+      # submodule bump before hopperguard fixed it, and re-introducing that
+      # would train people to merge past this gate again.
+      - name: The action enforces coverage (pass, fail, and the gitlink regression)
+        run: bash test/e2e-action.sh
 
       - name: Package (pack, install as a consumer, run it)
         run: npm run verify:package
