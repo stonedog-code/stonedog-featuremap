@@ -1,0 +1,47 @@
+name: "Feature map gate"
+description: >-
+  Validate a repository's feature-map.json against the shared schema, and (as
+  later increments land) refuse a pull request that touches a governed file no
+  feature claims.
+author: "StoneDogCode L.L.C."
+
+branding:
+  icon: map
+  color: blue
+
+inputs:
+  map:
+    description: >-
+      Path to the feature map, relative to the repository root. When set it is
+      the ONLY candidate — naming a file and then silently gating a different
+      one is worse than failing. Left unset, these are tried in order:
+      feature_map/feature-map.json, feature-map.json, feature-mapping.json.
+    required: false
+  governed-roots:
+    description: >-
+      Override the roots the gate governs, comma or newline separated. Rarely
+      correct: NEH-1203 moved governed roots INTO the map precisely because a
+      gate whose scope lives outside the document it reads cannot be shared.
+      Setting this logs a warning naming both values.
+    required: false
+
+outputs:
+  map:
+    description: "The map path that was read, relative to the repository root."
+  groups:
+    description: "Number of feature groups in the map."
+  features:
+    description: "Number of features, with a leaf group counted as a feature."
+  claimed-paths:
+    description: "Number of distinct code paths claimed across the map."
+  governed-roots:
+    description: "The governed roots in effect, comma separated."
+
+# A JavaScript action, not a composite one. The runner supplies Node, and
+# dist/index.js carries ajv and the validator bundled inside it — so this runs
+# with no install step, including in repositories with no Node toolchain of
+# their own. See src/action/main.ts for why that reverses NEH-1201's original
+# choice.
+runs:
+  using: node24
+  main: dist/index.js
