@@ -7441,7 +7441,7 @@ var require__ = __commonJS({
 });
 
 // src/action/main.ts
-import { readFileSync } from "node:fs";
+import { existsSync as existsSync2, readFileSync } from "node:fs";
 import path2 from "node:path";
 
 // src/action/runner.ts
@@ -7732,6 +7732,95 @@ function validateText(text) {
   return validate(parsed);
 }
 
+// src/action/coverage.ts
+function parseSubmodulePaths(gitmodulesText) {
+  if (!gitmodulesText) return /* @__PURE__ */ new Set();
+  return new Set(
+    gitmodulesText.split("\n").map((line) => /^\s*path\s*=\s*(.+?)\s*$/.exec(line)).filter((match) => match !== null).map((match) => match[1])
+  );
+}
+function isGitlink(filePath, submodulePaths) {
+  return submodulePaths.has(filePath);
+}
+function globToRegExp(glob) {
+  const escape2 = (part) => part.replace(/[.+^${}()|[\]\\]/g, "\\$&");
+  const source = glob.split("**").map((part) => part.split("*").map(escape2).join("[^/]*")).join(".*");
+  return new RegExp(`^${source}$`);
+}
+function matchesGlob(filePath, glob) {
+  return globToRegExp(glob).test(filePath);
+}
+function isGoverned(filePath, governedRoots) {
+  return governedRoots.some(
+    (root) => root.includes("*") ? matchesGlob(filePath, root) : filePath.startsWith(root)
+  );
+}
+function blocksGate(filePath, { governed, submodulePaths, removed = false }) {
+  if (!governed) return false;
+  if (removed) return false;
+  return !isGitlink(filePath, submodulePaths);
+}
+function classify(changed, map, submodulePaths) {
+  const claims = features(map).flatMap((feature) => feature.codePaths);
+  const verdict = { blocking: [], outOfScope: [], mapped: [], exempt: [] };
+  for (const file of changed) {
+    const filePath = file.filename;
+    const governed = isGoverned(filePath, map.governedRoots);
+    if (claims.some((claim) => matchesGlob(filePath, claim))) {
+      verdict.mapped.push(filePath);
+      continue;
+    }
+    if (!governed) {
+      verdict.outOfScope.push(filePath);
+      continue;
+    }
+    const removed = file.status === "removed";
+    if (blocksGate(filePath, { governed, submodulePaths, removed })) verdict.blocking.push(filePath);
+    else verdict.exempt.push(filePath);
+  }
+  return verdict;
+}
+
+// src/action/changed-files.ts
+var API_FILE_CEILING = 3e3;
+async function fetchChangedFiles({
+  token,
+  owner,
+  repo,
+  pull,
+  apiUrl = "https://api.github.com",
+  fetchImpl = fetch
+}) {
+  const files = [];
+  const perPage = 100;
+  for (let page = 1; ; page += 1) {
+    const url = `${apiUrl}/repos/${owner}/${repo}/pulls/${pull}/files?per_page=${perPage}&page=${page}`;
+    const response = await fetchImpl(url, {
+      headers: {
+        accept: "application/vnd.github+json",
+        authorization: `Bearer ${token}`,
+        "x-github-api-version": "2022-11-28",
+        "user-agent": "stonedog-featuremap"
+      }
+    });
+    if (!response.ok) {
+      throw new Error(
+        `GitHub API ${response.status} for ${owner}/${repo}#${pull} files (page ${page}). A partial file list would let the gate pass over what it never read, so this is fatal.`
+      );
+    }
+    const batch = await response.json();
+    files.push(...batch.map((f) => ({ filename: f.filename, status: f.status })));
+    if (batch.length < perPage) break;
+    if (files.length >= API_FILE_CEILING) break;
+  }
+  return { files, atApiCeiling: files.length >= API_FILE_CEILING };
+}
+function pullNumberFrom(payload) {
+  const event = payload;
+  const candidate = event?.pull_request?.number ?? event?.number;
+  return typeof candidate === "number" ? candidate : void 0;
+}
+
 // src/action/inputs.ts
 import { existsSync } from "node:fs";
 import path from "node:path";
@@ -7796,11 +7885,81 @@ async function run() {
       `governed-roots was overridden to [${override.join(", ")}]; the map declares [${map.governedRoots.join(", ")}]. The map is the intended home for this.`
     );
   }
+  const governedRoots = override.length > 0 ? override : map.governedRoots;
   setOutput("map", relative);
   setOutput("groups", String(map.featureGroups.length));
   setOutput("features", String(features2));
   setOutput("claimed-paths", String(paths));
-  setOutput("governed-roots", (override.length > 0 ? override : map.governedRoots).join(","));
+  setOutput("governed-roots", governedRoots.join(","));
+  const pull = pullNumberFrom(readEventPayload());
+  if (pull === void 0) {
+    info("Not a pull request \u2014 the map was validated; there are no changed files to gate.");
+    setOutput("examined", "0");
+    setOutput("blocking", "0");
+    return;
+  }
+  const token = getInput("token");
+  if (!token) {
+    setFailed(
+      "No `token` input. The coverage half needs to read the pull request's changed files; pass `token: ${{ secrets.GITHUB_TOKEN }}`. Failing rather than skipping, because a gate that quietly checks nothing is worse than one that is switched off."
+    );
+    return;
+  }
+  const [owner, repo] = (process.env.GITHUB_REPOSITORY ?? "/").split("/");
+  if (!owner || !repo) {
+    setFailed("GITHUB_REPOSITORY is unset or malformed; cannot read the pull request.");
+    return;
+  }
+  let changed;
+  try {
+    changed = await fetchChangedFiles({
+      token,
+      owner,
+      repo,
+      pull,
+      apiUrl: process.env.GITHUB_API_URL ?? void 0
+    });
+  } catch (error2) {
+    setFailed(error2.message);
+    return;
+  }
+  if (changed.atApiCeiling) {
+    warning(
+      `This pull request hit the API's 3000-file ceiling, so the changed-file list may be incomplete and this verdict covers only what was returned.`
+    );
+  }
+  const gitmodulesPath = path2.resolve(root, ".gitmodules");
+  const submodulePaths = parseSubmodulePaths(
+    existsSync2(gitmodulesPath) ? readFileSync(gitmodulesPath, "utf8") : ""
+  );
+  const verdict = classify(changed.files, { ...map, governedRoots }, submodulePaths);
+  info(
+    `Gate input: ${governedRoots.length} governed root(s), ${features2} feature(s) claiming ${paths} path(s), ${changed.files.length} changed file(s) examined \u2014 ${verdict.mapped.length} mapped, ${verdict.outOfScope.length} out of scope, ${verdict.exempt.length} exempt, ${verdict.blocking.length} unmapped.`
+  );
+  setOutput("examined", String(changed.files.length));
+  setOutput("blocking", String(verdict.blocking.length));
+  if (verdict.blocking.length > 0) {
+    for (const file of verdict.blocking) {
+      error(`No feature in ${relative} claims this file.`, { file });
+    }
+    setFailed(
+      `${verdict.blocking.length} changed file(s) under a governed root are not mapped to a feature in ${relative}:
+` + verdict.blocking.map((f) => `  - ${f}`).join("\n")
+    );
+    return;
+  }
+  info(
+    verdict.mapped.length > 0 ? `Pass \u2014 ${verdict.mapped.length} changed file(s) mapped to a feature` + (verdict.exempt.length > 0 ? `, ${verdict.exempt.length} exempt.` : ".") : verdict.exempt.length > 0 ? `Pass \u2014 nothing to check: ${verdict.exempt.length} governed file(s) were exempt (gitlink bumps or deletions) and ${verdict.outOfScope.length} were out of scope.` : `Pass \u2014 no changed file fell under a governed root (${verdict.outOfScope.length} out of scope).`
+  );
+}
+function readEventPayload() {
+  const file = process.env.GITHUB_EVENT_PATH;
+  if (!file || !existsSync2(file)) return null;
+  try {
+    return JSON.parse(readFileSync(file, "utf8"));
+  } catch {
+    return null;
+  }
 }
 run().catch((error2) => {
   setFailed(error2 instanceof Error ? error2.message : String(error2));

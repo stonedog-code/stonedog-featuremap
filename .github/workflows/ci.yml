@@ -83,6 +83,17 @@ jobs:
             exit 1
           fi
 
+      # Enforcement, end to end, against a stub API — the unit tests prove the
+      # decision and this proves the WIRING: inputs read, event parsed, files
+      # paged, verdict acted on, exit code set. Every one of those is a place
+      # the gate could quietly do nothing.
+      #
+      # The gitlink case is the one that matters most: it failed on every
+      # submodule bump before hopperguard fixed it, and re-introducing that
+      # would train people to merge past this gate again.
+      - name: The action enforces coverage (pass, fail, and the gitlink regression)
+        run: bash test/e2e-action.sh
+
       - name: Package (pack, install as a consumer, run it)
         run: npm run verify:package
 

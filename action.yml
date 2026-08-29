@@ -17,6 +17,14 @@ inputs:
       one is worse than failing. Left unset, these are tried in order:
       feature_map/feature-map.json, feature-map.json, feature-mapping.json.
     required: false
+  token:
+    description: >-
+      A token with pull-request read access, normally
+      ${{ secrets.GITHUB_TOKEN }}. Required on a pull_request run: the coverage
+      half reads the changed-file list. Absent, the action FAILS rather than
+      skipping — a gate that quietly checks nothing is worse than one that is
+      switched off.
+    required: false
   governed-roots:
     description: >-
       Override the roots the gate governs, comma or newline separated. Rarely
@@ -34,8 +42,20 @@ outputs:
     description: "Number of features, with a leaf group counted as a feature."
   claimed-paths:
     description: "Number of distinct code paths claimed across the map."
+  token:
+    description: >-
+      A token with pull-request read access, normally
+      ${{ secrets.GITHUB_TOKEN }}. Required on a pull_request run: the coverage
+      half reads the changed-file list. Absent, the action FAILS rather than
+      skipping — a gate that quietly checks nothing is worse than one that is
+      switched off.
+    required: false
   governed-roots:
     description: "The governed roots in effect, comma separated."
+  examined:
+    description: "How many changed files were examined. 0 on a non-pull-request run."
+  blocking:
+    description: "How many changed files are governed, unmapped and not exempt."
 
 # A JavaScript action, not a composite one. The runner supplies Node, and
 # dist/index.js carries ajv and the validator bundled inside it — so this runs
