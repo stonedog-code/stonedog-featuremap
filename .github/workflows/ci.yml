@@ -55,6 +55,13 @@ jobs:
       # Rebuild-and-diff, not an mtime comparison: checkout, clone and worktree
       # add all restamp files, so mtimes would cry stale on a healthy tree and
       # teach everyone to ignore the check.
+      # action.yml is the one file every CONSUMING repository must parse, and
+      # nothing here was checking it: actionlint lints workflows, check:bundle
+      # compares the bundle, and the e2e runs dist/index.js directly. Two
+      # defects shipped as v1.0.0 and failed in hopperguard rather than here.
+      - name: action.yml is a manifest GitHub will load
+        run: npm run check:action
+
       - name: The committed bundle matches src/
         run: npm run check:bundle
 
