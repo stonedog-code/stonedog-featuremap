@@ -7732,6 +7732,145 @@ function validateText(text) {
   return validate(parsed);
 }
 
+// src/action/report.ts
+var COMMENT_MARKER = "<!-- feature-mapping-comment -->";
+var MAX_LISTED = 25;
+function listFiles(files) {
+  const shown = files.slice(0, MAX_LISTED).map((file) => `- \`${file}\``);
+  if (files.length > MAX_LISTED) {
+    shown.push(`- \u2026and ${files.length - MAX_LISTED} more`);
+  }
+  return shown;
+}
+function pie(verdict) {
+  const all = [
+    { label: "Mapped", count: verdict.mapped.length },
+    { label: "Unmapped (blocking)", count: verdict.blocking.length },
+    { label: "Exempt", count: verdict.exempt.length },
+    { label: "Out of scope", count: verdict.outOfScope.length }
+  ];
+  const slices = all.filter((slice) => slice.count > 0);
+  if (slices.length === 0) return [];
+  return [
+    "```mermaid",
+    "pie showData",
+    "    title Changed files by coverage",
+    ...slices.map((slice) => `    "${slice.label}" : ${slice.count}`),
+    "```"
+  ];
+}
+function buildReport(input) {
+  const { verdict, mapPath, groups, features: features2, claimedPaths: claimedPaths2, governedRoots } = input;
+  const examined = verdict.mapped.length + verdict.blocking.length + verdict.exempt.length + verdict.outOfScope.length;
+  const failed = verdict.blocking.length > 0;
+  const lines = ["## Feature map coverage", ""];
+  lines.push(
+    failed ? `### \u26D4 Failed \u2014 ${verdict.blocking.length} changed file(s) belong to no feature` : verdict.mapped.length > 0 ? `### \u2705 Passed \u2014 ${verdict.mapped.length} changed file(s) mapped to a feature` : `### \u2705 Passed \u2014 nothing to check`,
+    ""
+  );
+  lines.push(
+    `Examined **${examined}** changed file(s) against \`${mapPath}\` \u2014 ${groups} group(s), ${features2} feature(s) claiming ${claimedPaths2} path(s), governed roots \`${governedRoots.join("`, `") || "(none)"}\`.`,
+    "",
+    `| | |`,
+    `|---|---|`,
+    `| mapped | ${verdict.mapped.length} |`,
+    `| unmapped (blocking) | ${verdict.blocking.length} |`,
+    `| exempt (gitlink bump or deletion) | ${verdict.exempt.length} |`,
+    `| out of scope | ${verdict.outOfScope.length} |`,
+    ""
+  );
+  if (input.atApiCeiling) {
+    lines.push(
+      `> \u26A0\uFE0F This pull request hit the API's 3000-file ceiling, so the changed-file list may be incomplete and this verdict covers only what was returned.`,
+      ""
+    );
+  }
+  if (failed) {
+    lines.push(
+      `These files are under a governed root and no feature in \`${mapPath}\` claims them. Add them to a feature's \`codePaths\`, or if they genuinely belong to no feature, say so in review rather than widening a glob to silence this.`,
+      "",
+      ...listFiles(verdict.blocking),
+      ""
+    );
+  }
+  if (verdict.exempt.length > 0) {
+    lines.push(
+      `<details><summary>${verdict.exempt.length} governed file(s) exempt \u2014 submodule gitlinks and deletions, which can never be mapped</summary>`,
+      "",
+      ...listFiles(verdict.exempt),
+      "",
+      "</details>",
+      ""
+    );
+  }
+  if (verdict.outOfScope.length > 0) {
+    lines.push(
+      `<details><summary>${verdict.outOfScope.length} changed file(s) out of scope \u2014 outside every governed root</summary>`,
+      "",
+      ...listFiles(verdict.outOfScope),
+      "",
+      "</details>",
+      ""
+    );
+  }
+  const chart = pie(verdict);
+  if (chart.length > 0) lines.push(...chart, "");
+  lines.push(COMMENT_MARKER);
+  return lines.join("\n");
+}
+
+// src/action/comment.ts
+function headers(token) {
+  return {
+    accept: "application/vnd.github+json",
+    authorization: `Bearer ${token}`,
+    "content-type": "application/json",
+    "x-github-api-version": "2022-11-28",
+    "user-agent": "stonedog-featuremap"
+  };
+}
+async function upsertComment({
+  token,
+  owner,
+  repo,
+  issue: issue2,
+  body,
+  apiUrl = "https://api.github.com",
+  fetchImpl = fetch
+}) {
+  const base = `${apiUrl}/repos/${owner}/${repo}/issues`;
+  try {
+    let existing;
+    for (let page = 1; ; page += 1) {
+      const response2 = await fetchImpl(`${base}/${issue2}/comments?per_page=100&page=${page}`, {
+        headers: headers(token)
+      });
+      if (!response2.ok) {
+        return { status: "skipped", reason: `listing comments returned ${response2.status}` };
+      }
+      const batch = await response2.json();
+      existing = batch.find((comment) => comment.body?.includes(COMMENT_MARKER));
+      if (existing || batch.length < 100) break;
+    }
+    if (existing) {
+      const response2 = await fetchImpl(`${base}/comments/${existing.id}`, {
+        method: "PATCH",
+        headers: headers(token),
+        body: JSON.stringify({ body })
+      });
+      return response2.ok ? { status: "updated", id: existing.id } : { status: "skipped", reason: `updating the comment returned ${response2.status}` };
+    }
+    const response = await fetchImpl(`${base}/${issue2}/comments`, {
+      method: "POST",
+      headers: headers(token),
+      body: JSON.stringify({ body })
+    });
+    return response.ok ? { status: "created" } : { status: "skipped", reason: `creating the comment returned ${response.status}` };
+  } catch (error2) {
+    return { status: "skipped", reason: error2.message };
+  }
+}
+
 // src/action/coverage.ts
 function parseSubmodulePaths(gitmodulesText) {
   if (!gitmodulesText) return /* @__PURE__ */ new Set();
@@ -7938,6 +8077,30 @@ async function run() {
   );
   setOutput("examined", String(changed.files.length));
   setOutput("blocking", String(verdict.blocking.length));
+  if (getInput("comment") !== "false") {
+    const report = buildReport({
+      verdict,
+      mapPath: relative,
+      groups: map.featureGroups.length,
+      features: features2,
+      claimedPaths: paths,
+      governedRoots,
+      atApiCeiling: changed.atApiCeiling
+    });
+    const posted = await upsertComment({
+      token,
+      owner,
+      repo,
+      issue: pull,
+      body: report,
+      apiUrl: process.env.GITHUB_API_URL ?? void 0
+    });
+    if (posted.status === "skipped") {
+      warning(`Could not post the coverage comment (${posted.reason}). The verdict below still stands.`);
+    } else {
+      info(`Coverage comment ${posted.status}.`);
+    }
+  }
   if (verdict.blocking.length > 0) {
     for (const file of verdict.blocking) {
       error(`No feature in ${relative} claims this file.`, { file });
