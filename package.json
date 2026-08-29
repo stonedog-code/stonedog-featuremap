@@ -1,0 +1,55 @@
+{
+  "name": "@stonedogcode/featuremap",
+  "version": "0.1.0",
+  "description": "The feature-map schema: what a repository declares about its own features and the code paths that implement them, validated so a coverage gate can refuse a malformed map as a different verdict from an uncovered file.",
+  "license": "Apache-2.0",
+  "author": "StoneDogCode L.L.C.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/stonedog-code/stonedog-featuremap.git"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "//exports": "`.` is the library. `./schema` is the raw JSON Schema, exported as a file so a consumer in another language -- the gate may end up a composite action running anything -- can read it without a JavaScript import.",
+  "exports": {
+    ".": "./src/index.ts",
+    "./schema": "./schema/feature-map.schema.json",
+    "./package.json": "./package.json"
+  },
+  "//files": "src/ ships as TypeScript SOURCE, matching @stonedogcode/tests. __tests__ is excluded because those import jest globals and a consumer parsing src/** would drag them in.",
+  "files": [
+    "src",
+    "!src/**/__tests__/**",
+    "schema",
+    "LICENSE",
+    "NOTICE",
+    "README.md"
+  ],
+  "scripts": {
+    "type-check": "tsc --noEmit",
+    "lint": "eslint .",
+    "//test": "Jest runs as ESM, which needs the VM modules flag.",
+    "test": "NODE_OPTIONS=--experimental-vm-modules jest --selectProjects unit",
+    "//test:integration": "Validates the REAL maps in this fleet, not fixtures. That is the seam: a schema that only ever sees its own examples has not been shown to accept the corpus it was written for.",
+    "test:integration": "NODE_OPTIONS=--experimental-vm-modules jest --selectProjects integration",
+    "test:coverage": "NODE_OPTIONS=--experimental-vm-modules jest --selectProjects unit --coverage",
+    "//validate": "The CLI the gate will call. Exits 0 valid, 1 invalid, 2 unreadable -- three states, because 'could not open the file' is not 'the file is wrong'.",
+    "validate": "tsx src/bin.ts"
+  },
+  "dependencies": {
+    "ajv": "^8.17.1"
+  },
+  "devDependencies": {
+    "@jest/globals": "^29.7.0",
+    "@types/node": "^22.10.2",
+    "eslint": "^9.17.0",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.2.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.18.1"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

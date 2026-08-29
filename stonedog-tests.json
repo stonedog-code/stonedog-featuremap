@@ -1,0 +1,8 @@
+{
+  "//": "Declared, not guessed. @stonedogcode/tests reads this to build the fleet inventory; a repository that declares nothing is reported as an empty source rather than contributing a silent zero.",
+  "tiers": {
+    "unit": ["src/**/__tests__/**/*.test.ts"],
+    "integration": ["test/integration/**/*.test.ts"]
+  },
+  "//e2e": "Absent deliberately. This package is a schema and a validator -- it has no running surface to drive, so an e2e tier here would be theatre. NEH-1227's viewer will have one."
+}
