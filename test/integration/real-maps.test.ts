@@ -43,6 +43,11 @@ import { describe, expect, it } from "@jest/globals";
 
 import { claimedPaths, featureKeys } from "../../src/derive.js";
 import { validateText } from "../../src/validate.js";
+import {
+  classify,
+  parseSubmodulePaths,
+  type CoverageVerdict,
+} from "../../src/action/coverage.js";
 
 /** The real maps, by the repository that owns them. */
 const REAL_MAPS = [
@@ -146,4 +151,71 @@ describe("the real feature maps, as merged on origin/main", () => {
       expect(paths.length).toBeGreaterThan(0);
     });
   }
+});
+
+/**
+ * The COVERAGE decision, against hopperguard's real map and real submodules.
+ *
+ * `src/action/__tests__/coverage.test.ts` proves the rules fire on fixtures.
+ * This proves the port reproduces what the LIVE gate actually decides — which
+ * is a different claim, and the one that matters: NEH-1201 is extracting logic
+ * that has been running in production for months, and a port that disagrees
+ * with it would change the verdict on every consuming repository at once.
+ *
+ * Each case below was driven through hopperguard's own inline gate on
+ * 2026-08-29 and its verdict recorded, including the one that surprised me:
+ * `apps/web/src/brand-new-thing.ts` is MAPPED, because the map carries a
+ * `PLATFORM.WEB_APP` catch-all at `apps/web/src/*`. Calling that a bug is
+ * exactly the wrong conclusion, so it is pinned here.
+ */
+describe("the coverage decision, against hopperguard's real map", () => {
+  const hopperguard = REAL_MAPS[0];
+  const found = fromOriginMain(hopperguard.clone, hopperguard.file);
+  const gitmodules = (() => {
+    if (!existsSync(hopperguard.clone)) return undefined;
+    try {
+      return execFileSync("git", ["-C", hopperguard.clone, "show", "origin/main:.gitmodules"], {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      });
+    } catch {
+      return undefined;
+    }
+  })();
+
+  const run = found && gitmodules !== undefined ? it : it.skip;
+
+  run("reproduces the live gate's verdict on every recorded case", () => {
+    const result = validateText(found!.body);
+    expect(result.valid).toBe(true);
+    if (result.valid === false) throw new Error("unreachable");
+
+    const subs = parseSubmodulePaths(gitmodules!);
+    process.stdout.write(
+      `\n  hopperguard @ ${found!.sha}: ${result.map.featureGroups.length} group(s), ` +
+        `${subs.size} submodule(s), roots ${JSON.stringify(result.map.governedRoots)}\n`,
+    );
+    // The count is asserted, not just printed: a .gitmodules that parsed to
+    // nothing would make every gitlink case "blocking" and this suite would
+    // still be measuring something, just not the thing it claims.
+    expect(subs.size).toBeGreaterThan(0);
+
+    const cases: Array<[string, keyof CoverageVerdict, string?]> = [
+      ["apps/web/src/app/dashboard/dashboard-user/widget-registry.ts", "mapped"],
+      ["apps/web/src/brand-new-thing.ts", "mapped"],
+      ["packages/brand-new-pkg/src/x.ts", "blocking"],
+      ["docs/whatever.ts", "outOfScope"],
+      ["apps/web", "exempt"],
+      ["packages/hopper-db", "exempt"],
+      ["packages/gone/src/x.ts", "exempt", "removed"],
+    ];
+
+    for (const [filename, want, status] of cases) {
+      const verdict = classify([{ filename, status }], result.map, subs);
+      const got = (["blocking", "outOfScope", "mapped", "exempt"] as const).find(
+        (key) => verdict[key].length > 0,
+      );
+      expect([filename, got]).toEqual([filename, want]);
+    }
+  });
 });
