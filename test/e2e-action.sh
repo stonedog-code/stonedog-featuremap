@@ -67,7 +67,7 @@ run_case "one bad file among good ones still FAILS"   1 '[{"filename":"apps/web/
 # that is switched off.
 set +e
 GITHUB_WORKSPACE="$WORK/repo" GITHUB_OUTPUT="$WORK/out" GITHUB_EVENT_PATH="$WORK/event.json" \
-  GITHUB_REPOSITORY="o/r" node "$ROOT/dist/index.js" >/dev/null 2>&1
+  GITHUB_REPOSITORY="o/r" env -u INPUT_TOKEN node "$ROOT/dist/index.js" >/dev/null 2>&1
 notoken=$?
 set -e
 if [ "$notoken" = "1" ]; then printf '  ok   a missing token FAILS rather than skipping\n'
@@ -76,7 +76,10 @@ else printf '  \033[31mFAIL\033[0m a missing token should fail, got %s\n' "$noto
 # A push run has no pull request. It must validate the map and say plainly that
 # it had nothing to gate, rather than reporting a coverage pass it never made.
 set +e
-GITHUB_WORKSPACE="$WORK/repo" GITHUB_OUTPUT="$WORK/out" GITHUB_REPOSITORY="o/r" \
+# `env -u`, because CI SETS GITHUB_EVENT_PATH — without clearing it this case
+# reads the runner's own pull_request payload instead of the absence it means
+# to test, and asserts nothing about a push run.
+env -u GITHUB_EVENT_PATH GITHUB_WORKSPACE="$WORK/repo" GITHUB_OUTPUT="$WORK/out" GITHUB_REPOSITORY="o/r" \
   node "$ROOT/dist/index.js" > "$WORK/push.log" 2>&1
 push=$?
 set -e
