@@ -42,6 +42,13 @@ jobs:
       # validator's whole job is refusing a bad map, so a build where it accepts
       # one must be red -- and `! cmd` is the only way to assert that a command
       # FAILS without the step passing on a crash for some other reason.
+      # The tarball, not the checkout. `files`, `exports` and the packed
+      # contents are invisible to every suite above -- they operate on source
+      # files in this repo -- and they are exactly what breaks at publish time,
+      # after review, when the version is already burned and cannot be reused.
+      - name: Package (pack, install as a consumer, run it)
+        run: npm run verify:package
+
       - name: The validator accepts a valid map (exit 0)
         run: npx tsx src/bin.ts test/fixtures/valid.json
 
