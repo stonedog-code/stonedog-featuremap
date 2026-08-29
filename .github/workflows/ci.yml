@@ -46,6 +46,43 @@ jobs:
       # contents are invisible to every suite above -- they operate on source
       # files in this repo -- and they are exactly what breaks at publish time,
       # after review, when the version is already burned and cannot be reused.
+      # dist/index.js is COMMITTED and is the only thing GitHub executes when a
+      # repository uses this action. An edit under src/ that was not rebuilt
+      # means every consumer silently runs the OLD logic and reports success —
+      # this fleet's generated-artifact failure, arriving in the one file
+      # nobody installs and everybody runs.
+      #
+      # Rebuild-and-diff, not an mtime comparison: checkout, clone and worktree
+      # add all restamp files, so mtimes would cry stale on a healthy tree and
+      # teach everyone to ignore the check.
+      - name: The committed bundle matches src/
+        run: npm run check:bundle
+
+      # The bundle, executed the way the runner executes it. `check:bundle`
+      # proves it is CURRENT, which is a different claim from RUNS — a CJS
+      # bundle built cleanly here and died at load with "module is not defined",
+      # and an earlier ESM one died on a dependency's dynamic require. Neither
+      # was visible until something ran the file.
+      - name: The action runs, and refuses an invalid map
+        run: |
+          set -euo pipefail
+          work="$(mktemp -d)"
+          cp test/fixtures/valid.json "$work/feature-map.json"
+          GITHUB_WORKSPACE="$work" GITHUB_OUTPUT="$work/out" node dist/index.js
+          grep -q '^features<<' "$work/out" || { echo "::error::the action wrote no outputs"; exit 1; }
+
+          cp test/fixtures/invalid.json "$work/feature-map.json"
+          if GITHUB_WORKSPACE="$work" GITHUB_OUTPUT="$work/out2" node dist/index.js; then
+            echo "::error::the action accepted a map it must refuse"
+            exit 1
+          fi
+
+          empty="$(mktemp -d)"
+          if GITHUB_WORKSPACE="$empty" GITHUB_OUTPUT="$empty/out" node dist/index.js; then
+            echo "::error::the action passed with no map at all"
+            exit 1
+          fi
+
       - name: Package (pack, install as a consumer, run it)
         run: npm run verify:package
 

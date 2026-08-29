@@ -28,6 +28,10 @@
   "scripts": {
     "type-check": "tsc --noEmit",
     "lint": "eslint .",
+    "//build:action": "Bundle src/action into dist/index.js, the single file GitHub runs. Committed, because a JavaScript action has no install step.",
+    "build:action": "node scripts/build-action.mjs",
+    "//check:bundle": "Rebuild and refuse a diff. dist/index.js is what CI executes in every consuming repo, so a stale bundle runs the OLD logic and reports success.",
+    "check:bundle": "bash scripts/check-bundle.sh",
     "//test": "Jest runs as ESM, which needs the VM modules flag.",
     "test": "NODE_OPTIONS=--experimental-vm-modules jest --selectProjects unit",
     "//test:integration": "Validates the REAL maps in this fleet, not fixtures. That is the seam: a schema that only ever sees its own examples has not been shown to accept the corpus it was written for.",
@@ -49,7 +53,8 @@
   },
   "devDependencies": {
     "@jest/globals": "^29.7.0",
-    "@types/node": "^22.10.2",
+    "@types/node": "^22.20.1",
+    "esbuild": "^0.28.2",
     "eslint": "^9.17.0",
     "jest": "^29.7.0",
     "ts-jest": "^29.2.5",
