@@ -7,4 +7,5 @@
 
 export { validate, validateText, schema, type Validation, type ValidationError } from "./validate.js";
 export { features, featureKeys, claimedPaths, duplicateKeys, misprefixedFeatureKeys } from "./derive.js";
+export { toMermaid, escapeLabel, type MermaidDiagram } from "./mermaid.js";
 export { isLeafGroup, type FeatureMap, type FeatureGroup, type Feature, type LeafGroup, type NestedGroup, type PathGlob } from "./types.js";

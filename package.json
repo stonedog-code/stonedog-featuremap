@@ -1,6 +1,6 @@
 {
   "name": "@stonedogcode/featuremap",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "The feature-map schema: what a repository declares about its own features and the code paths that implement them, validated so a coverage gate can refuse a malformed map as a different verdict from an uncovered file.",
   "license": "Apache-2.0",
   "author": "StoneDogCode L.L.C.",

@@ -63,6 +63,27 @@ featureKeys(result.map)   // every feature key, sorted, both shapes flattened
 claimedPaths(result.map)  // every claimed path, de-duplicated
 ```
 
+### Diagrams
+
+`toMermaid(map)` renders one Mermaid flowchart per feature: the feature, the
+code paths it claims, and its `relatedComponents` as dotted edges. A leaf group
+is its own feature, so a flat map yields one diagram per group.
+
+```ts
+for (const { fileName, text } of toMermaid(result.map)) {
+  writeFileSync(join(outDir, fileName), text)   // e.g. BILLING.INVOICES.mer
+}
+```
+
+The output is a **view**, never the source. Mermaid cannot express a glob as
+anything but a label, so nothing reads a `.mer` back; `feature-map.json` stays
+the authority. It is **byte-deterministic**: features sorted by key, paths in
+the order the map declares them, nothing time-dependent, one trailing newline.
+A caller regenerating on a schedule commits only real changes. Title and
+description ride in leading `%%` comments, so the file is valid Mermaid in any
+renderer. A map with duplicate keys throws, because a key names a file and a
+duplicate would silently overwrite a diagram.
+
 The JSON Schema itself is exported for consumers that are not JavaScript:
 
 ```js
